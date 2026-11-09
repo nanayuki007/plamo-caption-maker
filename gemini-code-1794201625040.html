@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>プラモデル展示用キャプションカード作成ツール</title>
+  <!-- PDF作成用ライブラリ -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  
+  <style>
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", meiryo, sans-serif; padding: 20px; background: #e9ecef; margin: 0; color: #333; }
+    .app-container { display: flex; gap: 20px; max-width: 1400px; margin: 0 auto; }
+    
+    /* 左側：操作パネル */
+    .control-panel { width: 340px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .card-inputs { max-height: 65vh; overflow-y: auto; margin-bottom: 12px; padding-right: 5px; }
+    .card-form-item { border: 1px solid #ddd; padding: 12px; border-radius: 6px; margin-bottom: 12px; background: #fafafa; }
+    .card-form-item h4 { margin: 0 0 10px 0; font-size: 13px; color: #444; border-bottom: 2px solid #007bff; padding-bottom: 4px; }
+    .form-group { margin-bottom: 8px; }
+    .form-group label { display: block; font-size: 11px; margin-bottom: 2px; color: #555; font-weight: bold; }
+    .form-group input, .form-group textarea { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; font-family: inherit; }
+    .form-group textarea { resize: vertical; height: 50px; }
+    
+    .btn { width: 100%; padding: 10px; margin-top: 6px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; font-size: 13px; }
+    .btn-primary { background: #007bff; color: white; }
+    .btn-primary:hover { background: #0056b3; }
+    .btn-secondary { background: #6c757d; color: white; }
+    .btn-secondary:hover { background: #545b62; }
+    
+    /* 右側：A4プレビュー領域 */
+    .preview-area { flex-grow: 1; display: flex; justify-content: center; }
+    
+    /* A4用紙の縦横比（210mm x 297mm 相当） */
+    .a4-page {
+      width: 210mm;
+      height: 297mm;
+      background: #fff;
+      padding: 10mm 14mm;
+      box-sizing: border-box;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      display: grid;
+      grid-template-columns: repeat(2, 91mm);
+      grid-template-rows: repeat(4, 55mm);
+      gap: 5mm 8mm;
+      align-content: start;
+    }
+    
+    /* プラモ用キャプションカード（91mm x 55mm） */
+    .caption-card {
+      width: 91mm;
+      height: 55mm;
+      border: 1px dashed #aaa;
+      padding: 5mm 6mm;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: #fff;
+      position: relative;
+    }
+    
+    .card-header {
+      border-bottom: 1.5px solid #222;
+      padding-bottom: 3px;
+      margin-bottom: 4px;
+    }
+    .scale-tag {
+      font-size: 7.5pt;
+      font-weight: bold;
+      color: #555;
+      letter-spacing: 0.5px;
+    }
+    .kit-title {
+      font-size: 11pt;
+      font-weight: bold;
+      line-height: 1.2;
+      color: #000;
+      word-break: break-all;
+    }
+    .builder-name {
+      font-size: 8.5pt;
+      color: #333;
+      text-align: right;
+      margin-top: 1px;
+    }
+    .builder-name span {
+      font-size: 7pt;
+      color: #666;
+      margin-right: 2px;
+    }
+    
+    .card-body {
+      flex-grow: 1;
+      margin-top: 4px;
+    }
+    .notes-title {
+      font-size: 6.5pt;
+      font-weight: bold;
+      color: #777;
+      margin-bottom: 1px;
+      text-transform: uppercase;
+    }
+    .notes-content {
+      font-size: 7.5pt;
+      color: #222;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- 入力パネル -->
+    <div class="control-panel">
+      <h3>プラモ展示用キャプション</h3>
+      <div class="card-inputs" id="formList"></div>
+      <button class="btn btn-secondary" onclick="addCardInput()">＋ カードを追加</button>
+      <button class="btn btn-primary" onclick="downloadPDF()">A4 PDFを出力</button>
+    </div>
+
+    <!-- A4 プレビュー -->
+    <div class="preview-area">
+      <div class="a4-page" id="a4Page"></div>
+    </div>
+  </div>
+
+  <script>
+    // 初期データ（プラモ展示会向けサンプル 8枚分）
+    let cards = [
+      { scale: "1/144", title: "RX-78-2 ガンダム", builder: "モデラーA", notes: "筋彫り追加、全塗装仕上げ。\nフレーム部分にメタリックカラーを使用。" },
+      { scale: "1/100 MG", title: "MS-06S ザクII", builder: "モデラーA", notes: "キャンディ塗装仕上げ。\nモノアイをウェーブ製パーツに置換。" },
+      { scale: "NON SCALE", title: "メガミデバイス 朱羅 弓兵", builder: "モデラーB", notes: "合わせ目消し、グラデーション塗装。\n髪パーツにグラデーションを追加。" },
+      { scale: "1/72", title: "VF-31J ジークフリード", builder: "モデラーB", notes: "水転写デカール貼り込み、つや消しトップコート仕上げ。" },
+      { scale: "1/35", title: "III号戦車 L型", builder: "モデラーC", notes: "チッピング＆ウェザリング加工。\nピグメントで足回りの泥汚れを再現。" },
+      { scale: "1/24", title: "日産 スカイライン GT-R", builder: "モデラーC", notes: "ウレタンクリアー塗装＆鏡面研磨仕上げ。" },
+      { scale: "1/144 HG", title: "オリジナル改修機", builder: "モデラーD", notes: "ミキシングビルド作品。\n市販プラ材・プラ棒でディテールアップ。" },
+      { scale: "NON SCALE", title: "展示用ジオラマベース", builder: "サークル一同", notes: "スタイロフォームとスタイロペーストで岩肌を再現。" }
+    ];
+
+    // 初期表示処理
+    function render() {
+      const formList = document.getElementById('formList');
+      const a4Page = document.getElementById('a4Page');
+      
+      formList.innerHTML = '';
+      a4Page.innerHTML = '';
+
+      cards.forEach((card, index) => {
+        // フォーム項目の生成
+        const formItem = document.createElement('div');
+        formItem.className = 'card-form-item';
+        formItem.innerHTML = `
+          <h4>カード ${index + 1}</h4>
+          <div class="form-group">
+            <label>スケール / ブランド</label>
+            <input type="text" value="${escapeHtml(card.scale)}" placeholder="例: 1/144 HG" oninput="updateData(${index}, 'scale', this.value)">
+          </div>
+          <div class="form-group">
+            <label>作品名 / キット名</label>
+            <input type="text" value="${escapeHtml(card.title)}" placeholder="例: RX-78-2 ガンダム" oninput="updateData(${index}, 'title', this.value)">
+          </div>
+          <div class="form-group">
+            <label>制作者名（モデラー名）</label>
+            <input type="text" value="${escapeHtml(card.builder)}" placeholder="例: 名無しのモデラー" oninput="updateData(${index}, 'builder', this.value)">
+          </div>
+          <div class="form-group">
+            <label>改修・制作ポイント / コメント</label>
+            <textarea placeholder="例: 全塗装、筋彫り追加など" oninput="updateData(${index}, 'notes', this.value)">${escapeHtml(card.notes)}</textarea>
+          </div>
+        `;
+        formList.appendChild(formItem);
+
+        // A4プレビュー用カードの生成
+        const cardEl = document.createElement('div');
+        cardEl.className = 'caption-card';
+        cardEl.innerHTML = `
+          <div>
+            <div class="scale-tag">${escapeHtml(card.scale)}</div>
+            <div class="card-header">
+              <div class="kit-title">${escapeHtml(card.title)}</div>
+            </div>
+            <div class="builder-name"><span>BUILDER:</span><strong>${escapeHtml(card.builder)}</strong></div>
+          </div>
+          <div class="card-body">
+            <div class="notes-title">WORK DETAILS / NOTES</div>
+            <div class="notes-content">${escapeHtml(card.notes)}</div>
+          </div>
+        `;
+        a4Page.appendChild(cardEl);
+      });
+    }
+
+    // データ更新
+    function updateData(index, field, value) {
+      cards[index][field] = value;
+      renderPreviewOnly();
+    }
+
+    // プレビュー表示のみ高速更新
+    function renderPreviewOnly() {
+      const cardEls = document.querySelectorAll('.caption-card');
+      cards.forEach((card, index) => {
+        if (cardEls[index]) {
+          cardEls[index].querySelector('.scale-tag').textContent = card.scale;
+          cardEls[index].querySelector('.kit-title').textContent = card.title;
+          cardEls[index].querySelector('.builder-name strong').textContent = card.builder;
+          cardEls[index].querySelector('.notes-content').textContent = card.notes;
+        }
+      });
+    }
+
+    // カードの追加
+    function addCardInput() {
+      cards.push({ scale: "1/144", title: "新規作品", builder: "", notes: "" });
+      render();
+    }
+
+    // エスケープ処理
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+      });
+    }
+
+    // A4 PDFのダウンロード機能
+    async function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const element = document.getElementById('a4Page');
+      
+      const canvas = await html2canvas(element, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, 210, 297);
+      pdf.save('plamo-captions-a4.pdf');
+    }
+
+    // 起動時実行
+    render();
+  </script>
+</body>
+</html>
